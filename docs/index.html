@@ -4,192 +4,560 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rex — Regex Engine Demo</title>
-  <meta name="description" content="Interactive demo of a regex engine with ReDoS measurement: backtracking vs Thompson NFA vs lazy DFA.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563eb'/><text x='16' y='22' font-size='18' text-anchor='middle' fill='white' font-family='monospace'>.*</text></svg>">
+  <meta name="description" content="Interactive demo of Rex: measure ReDoS cost across backtracking, Thompson NFA, and lazy DFA engines — with a pattern safety checker and live matcher.">
+  <meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a0c10" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%232563eb'/><stop offset='1' stop-color='%237c3aed'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='url(%23g)'/><text x='16' y='22' font-size='14' text-anchor='middle' fill='white' font-family='monospace' font-weight='bold'>.*</text></svg>">
   <style>
+    /* ===== Design tokens (light + dark) ===== */
     :root {
-      --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f4; --border: #dde1e8;
-      --text: #16181d; --muted: #5d6573; --accent: #2563eb; --accent-ink: #ffffff;
-      --good: #15803d; --bad: #b91c1c; --warn: #d97706;
-      --radius: 12px; --shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 4px 16px rgb(16 24 40 / 0.05);
-      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #fafbfc;
+      --bg-elevated: #ffffff;
+      --surface: #ffffff;
+      --surface-2: #f3f4f6;
+      --surface-3: #e9eaee;
+      --border: #e2e4e9;
+      --border-strong: #d0d3da;
+      --text: #0f1216;
+      --text-secondary: #3d4450;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --accent-glow: rgb(37 99 235 / 0.15);
+      --good: #059669;
+      --good-soft: #ecfdf5;
+      --bad: #dc2626;
+      --bad-soft: #fef2f2;
+      --warn: #d97706;
+      --warn-soft: #fffbeb;
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+      --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.04);
+      --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.04);
+      --shadow-md: 0 4px 6px rgb(0 0 0 / 0.04), 0 10px 24px rgb(0 0 0 / 0.06);
+      --shadow-lg: 0 8px 16px rgb(0 0 0 / 0.06), 0 24px 48px rgb(0 0 0 / 0.08);
+      --shadow-glow: 0 0 0 3px var(--accent-glow);
+      --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "SF Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
       color-scheme: light;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0e1116; --surface: #161a21; --surface-2: #1d222b; --border: #2a303b;
-        --text: #e8eaee; --muted: #9aa3b2; --accent: #60a5fa; --accent-ink: #0b1220;
-        --good: #4ade80; --bad: #f87171; --warn: #fbbf24;
-        --shadow: none; color-scheme: dark;
+        --bg: #0a0c10;
+        --bg-elevated: #12151b;
+        --surface: #161a22;
+        --surface-2: #1e232d;
+        --surface-3: #272d39;
+        --border: #2a3040;
+        --border-strong: #3a4155;
+        --text: #f0f2f5;
+        --text-secondary: #c4c9d4;
+        --muted: #8b92a5;
+        --accent: #3b82f6;
+        --accent-hover: #60a5fa;
+        --accent-soft: rgb(59 130 246 / 0.12);
+        --accent-glow: rgb(59 130 246 / 0.25);
+        --good: #34d399;
+        --good-soft: rgb(52 211 153 / 0.12);
+        --bad: #f87171;
+        --bad-soft: rgb(248 113 113 / 0.12);
+        --warn: #fbbf24;
+        --warn-soft: rgb(251 191 36 / 0.12);
+        --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.2);
+        --shadow-md: 0 4px 6px rgb(0 0 0 / 0.25), 0 10px 24px rgb(0 0 0 / 0.3);
+        --shadow-lg: 0 8px 16px rgb(0 0 0 / 0.3), 0 24px 48px rgb(0 0 0 / 0.35);
+        color-scheme: dark;
       }
     }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; }
+
+    /* ===== Base + typography ===== */
+    *, *::before, *::after { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; padding: 0; }
     body {
-      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+      font-family: var(--font);
+      font-size: 15.5px;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+      min-height: 100vh;
     }
-    a { color: var(--accent); }
-    .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
-    header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-    header.top h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
-    header.top p { margin: 2px 0 0; color: var(--muted); }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); min-width: 0; margin-bottom: 16px; }
-    .card h2 { font-size: 15px; margin: 0 0 12px; }
-    .grid { display: grid; gap: 16px; }
-    .grid.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-    input, select, textarea, button { font: inherit; color: inherit; }
+    a { color: var(--accent); text-decoration: none; transition: color 0.2s var(--ease); }
+    a:hover { color: var(--accent-hover); }
+    code, .mono { font-family: var(--mono); font-size: 0.9em; }
+    code {
+      background: var(--surface-2); border: 1px solid var(--border);
+      padding: 1px 6px; border-radius: 5px; font-size: 0.86em;
+    }
+    ::selection { background: var(--accent-soft); color: var(--text); }
+    body::before {
+      content: "";
+      position: fixed; inset: 0; z-index: -1;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% -10%, var(--accent-glow), transparent 50%),
+        radial-gradient(ellipse 60% 40% at 80% 110%, var(--accent-glow), transparent 50%),
+        var(--bg);
+      pointer-events: none;
+    }
+
+    /* ===== Layout ===== */
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px 20px; }
+
+    /* ===== Header ===== */
+    header.top {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 20px 0; margin-bottom: 28px; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      animation: fadeDown 0.6s var(--ease) both;
+    }
+    header.top .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    header.top .icon {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #8b5cf6));
+      display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 16px;
+      font-family: var(--mono); letter-spacing: -0.03em;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+    header.top h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; font-weight: 700; }
+    header.top .sub { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+    header.top .actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+    /* ===== Buttons ===== */
+    button, .btn {
+      font: inherit; cursor: pointer; border: none; outline: none;
+      transition: all 0.25s var(--ease);
+    }
+    .btn, button:not(.linkish) {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: 14px;
+      background: var(--surface-2); color: var(--text);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-xs);
+    }
+    .btn:hover, button:not(.linkish):hover {
+      background: var(--surface-3); border-color: var(--border-strong);
+      transform: translateY(-1px); box-shadow: var(--shadow-sm);
+    }
+    .btn:active, button:not(.linkish):active { transform: translateY(0) scale(0.98); }
+    .btn.primary, button.primary {
+      background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #7c3aed));
+      color: #fff; border-color: transparent;
+      box-shadow: 0 2px 8px var(--accent-glow), inset 0 1px 0 rgb(255 255 255 / 0.15);
+    }
+    .btn.primary:hover, button.primary:hover {
+      filter: brightness(1.08);
+      box-shadow: 0 4px 16px var(--accent-glow), inset 0 1px 0 rgb(255 255 255 / 0.2);
+      transform: translateY(-1px);
+    }
+    button:focus-visible, .btn:focus-visible, a:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+
+    /* ===== Cards ===== */
+    .card {
+      background: color-mix(in srgb, var(--surface) 85%, transparent);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 20px;
+      min-width: 0;
+      transition: box-shadow 0.3s var(--ease), transform 0.3s var(--ease), border-color 0.3s var(--ease);
+      animation: fadeUp 0.55s var(--ease) both;
+    }
+    .wrap > section.card:nth-of-type(1) { animation-delay: 0.06s; }
+    .grid .card:nth-child(1) { animation-delay: 0.14s; }
+    .grid .card:nth-child(2) { animation-delay: 0.2s; }
+    .wrap > section.card:nth-of-type(2) { animation-delay: 0.26s; }
+    .wrap > section.card:nth-of-type(3) { animation-delay: 0.32s; }
+    .wrap > section.card:nth-of-type(4) { animation-delay: 0.38s; }
+    .card:hover {
+      box-shadow: var(--shadow-md); border-color: var(--border-strong);
+      transform: translateY(-2px);
+    }
+    .card > h2, .card > header h2 {
+      font-size: 16px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card > h2 .num, .section-num {
+      font-size: 11px; font-weight: 700; color: var(--accent);
+      background: var(--accent-soft); padding: 2px 8px; border-radius: 99px;
+      letter-spacing: 0.04em; flex-shrink: 0;
+    }
+    .card .desc { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+    .card .desc:last-child { margin-bottom: 0; }
+    .grid { display: grid; gap: 20px; }
+    .grid.two { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+
+    /* ===== Forms ===== */
+    label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
     input, select, textarea {
-      width: 100%; padding: 9px 11px; border-radius: 9px;
-      border: 1px solid var(--border); background: var(--surface-2); outline: none; min-width: 0;
+      font: inherit; color: var(--text);
+      width: 100%; padding: 11px 14px; border-radius: 10px;
+      border: 1.5px solid var(--border); background: var(--surface);
+      outline: none; min-width: 0;
+      transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease);
     }
-    input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-    button {
-      cursor: pointer; border: 1px solid var(--border); background: var(--surface-2);
-      padding: 9px 14px; border-radius: 9px; font-weight: 600;
+    input.mono { font-family: var(--mono); font-size: 14px; }
+    input:hover, select:hover, textarea:hover { border-color: var(--border-strong); }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent); box-shadow: var(--shadow-glow);
+      background: var(--bg-elevated);
     }
-    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-    .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+    input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.7; }
+    .row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
     .row > * { flex: 1 1 200px; }
-    .row > button { flex: 0 0 auto; }
-    .muted { color: var(--muted); }
-    .error { color: var(--bad); min-height: 1.4em; margin: 8px 0 0; font-size: 14px; }
-    .mono { font-family: var(--mono); }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .table-wrap { overflow-x: auto; }
-    .finding { padding: 10px 12px; border-radius: 8px; margin: 8px 0; font-size: 14px; }
-    .finding.risk { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
-    .finding.ok { background: color-mix(in srgb, var(--good) 12%, transparent); border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); }
-    .finding .kind { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .row > button, .row > .btn { flex: 0 0 auto; }
+
+    /* ===== Tables ===== */
+    .table-wrap {
+      overflow-x: auto; border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); }
+    th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th {
+      background: var(--surface-2); color: var(--muted); font-weight: 600;
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+      position: sticky; top: 0; z-index: 1;
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background 0.15s var(--ease); }
+    tbody tr:hover { background: var(--surface-2); }
+    td.steps-bad { color: var(--bad); font-variant-numeric: tabular-nums; font-weight: 600; }
+    td.steps-good { color: var(--good); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    /* ===== Badges ===== */
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 99px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+    }
+    .badge.ok, .badge.good { background: var(--good-soft); color: var(--good); }
+    .badge.risk, .badge.bad { background: var(--bad-soft); color: var(--bad); }
+    .badge.info { background: var(--accent-soft); color: var(--accent); }
+
+    /* ===== Findings ===== */
+    .finding {
+      padding: 14px 16px; border-radius: var(--radius); margin: 10px 0;
+      font-size: 14px; border: 1px solid transparent;
+      animation: slideIn 0.35s var(--ease) both;
+    }
+    .finding.risk { background: var(--bad-soft); border-color: color-mix(in srgb, var(--bad) 25%, transparent); }
+    .finding.ok { background: var(--good-soft); border-color: color-mix(in srgb, var(--good) 25%, transparent); }
+    .finding.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 25%, transparent); }
+    .finding.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+    .finding .kind {
+      display: block;
+      font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
     .finding.risk .kind { color: var(--bad); }
     .finding.ok .kind { color: var(--good); }
-    .finding .detail { margin-top: 4px; color: var(--muted); }
-    .steps { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 8px 0; }
-    .steps .engine { font-size: 13px; color: var(--muted); }
-    .steps .count { font-family: var(--mono); font-size: 20px; font-weight: 700; }
-    .steps .count.bad { color: var(--bad); }
-    .steps .count.good { color: var(--good); }
-    .viz { height: 24px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin: 8px 0; }
-    .viz .bar { height: 100%; transition: width 0.3s; }
-    .viz .bar.bt { background: var(--bad); }
-    .viz .bar.nfa { background: var(--good); }
-    footer { margin-top: 32px; color: var(--muted); font-size: 13px; text-align: center; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
-    .badge.risk { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
-    .badge.ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
-    .presets { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
-    .presets button { font-size: 13px; padding: 5px 10px; font-weight: 500; }
-    .result-box { font-family: var(--mono); font-size: 14px; padding: 12px; background: var(--surface-2); border-radius: 8px; margin-top: 10px; white-space: pre-wrap; word-break: break-all; }
+    .finding.warn .kind { color: var(--warn); }
+    .finding.info .kind { color: var(--accent); }
+    .finding .detail { margin-top: 4px; color: var(--text-secondary); line-height: 1.55; }
+    .finding .detail code { font-size: 0.9em; }
+    .error { color: var(--bad); min-height: 1.4em; margin: 8px 0 0; font-size: 14px; }
+    .muted { color: var(--muted); }
+
+    /* ===== Stats / metric tiles ===== */
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+      gap: 12px; margin: 16px 0;
+    }
+    .stat {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 16px; text-align: center;
+      transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+    }
+    .stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .stat .label {
+      font-size: 11px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.08em; font-weight: 600;
+    }
+    .stat .value {
+      font-size: 26px; font-weight: 800; margin-top: 4px; letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums; word-break: break-all;
+    }
+    .stat .value.good { color: var(--good); }
+    .stat .value.bad { color: var(--bad); }
+    .stat .value.accent { color: var(--accent); }
+    .stat .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ===== Viz bars ===== */
+    .viz-line {
+      display: grid; grid-template-columns: 118px 1fr; gap: 12px;
+      align-items: center; margin: 8px 0;
+    }
+    .viz-line .engine {
+      font-size: 12px; color: var(--muted); font-weight: 600; text-align: right;
+    }
+    .viz {
+      height: 28px; background: var(--surface-2); border-radius: 8px;
+      overflow: hidden; margin: 0; position: relative;
+    }
+    .viz .bar {
+      height: 100%; border-radius: 8px; position: relative;
+      transition: width 0.8s var(--ease);
+      min-width: 3px;
+    }
+    .viz .bar.bt, .viz .bar.bad { background: linear-gradient(90deg, var(--bad), color-mix(in srgb, var(--bad) 70%, #f97316)); }
+    .viz .bar.nfa, .viz .bar.good { background: linear-gradient(90deg, var(--good), color-mix(in srgb, var(--good) 70%, #06b6d4)); }
+    .viz .bar.accent { background: linear-gradient(90deg, var(--accent), #8b5cf6); }
+
+    /* ===== Result / code boxes ===== */
+    .result-box {
+      font-family: var(--mono); font-size: 13px; line-height: 1.65;
+      padding: 16px 18px; background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      margin-top: 12px; white-space: pre-wrap; word-break: break-word;
+      overflow-x: auto; color: var(--text-secondary);
+      position: relative;
+    }
     .match-yes { color: var(--good); font-weight: 700; }
     .match-no { color: var(--bad); font-weight: 700; }
+
+    /* ===== Presets / chips ===== */
+    .presets { display: flex; gap: 7px; flex-wrap: wrap; margin: 10px 0; }
+    .presets button {
+      font-size: 13px; padding: 6px 13px; font-weight: 500;
+      border-radius: 99px; background: var(--surface-2);
+      border: 1px solid var(--border); color: var(--text-secondary);
+      font-family: var(--mono);
+    }
+    .presets button:hover {
+      background: var(--accent-soft); border-color: var(--accent);
+      color: var(--accent); transform: translateY(-1px);
+      box-shadow: 0 2px 8px var(--accent-glow);
+    }
+    .presets button:active { transform: scale(0.96); }
+
+    /* ===== Slider ===== */
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 6px; padding: 0; border: none;
+      background: var(--surface-3); border-radius: 99px; outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--accent); border: 3px solid var(--bg-elevated);
+      box-shadow: 0 2px 6px var(--accent-glow), var(--shadow-sm);
+      cursor: grab; transition: transform 0.2s var(--ease-bounce);
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+    input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.1); }
+    input[type="range"]::-moz-range-thumb {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--accent); border: 3px solid var(--bg-elevated);
+      box-shadow: 0 2px 6px var(--accent-glow); cursor: grab;
+    }
+    input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+    /* ===== Ratio callout ===== */
+    .ratio-line {
+      margin: 14px 0 0; padding: 11px 14px;
+      background: var(--accent-soft);
+      border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+      border-radius: var(--radius); color: var(--text-secondary);
+      font-size: 14px;
+    }
+    .ratio-line b { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+    /* ===== Eyebrow labels (CLI examples) ===== */
+    .eyebrow {
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin: 0 0 8px;
+    }
+
+    /* ===== Footer ===== */
+    footer {
+      margin-top: 40px; padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--muted); font-size: 13px; text-align: center;
+      animation: fadeUp 0.5s var(--ease) 0.45s both;
+    }
+    footer a { color: var(--text-secondary); font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+
+    /* ===== Animations ===== */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .animate-in { animation: fadeUp 0.5s var(--ease) both; }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.2s; }
+    .delay-3 { animation-delay: 0.3s; }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 560px) {
+      .viz-line { grid-template-columns: 1fr; gap: 4px; }
+      .viz-line .engine { text-align: left; }
+      header.top h1 { font-size: 19px; }
+      .stat .value { font-size: 22px; }
+      .card { padding: 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      html { scroll-behavior: auto; }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="top">
-      <div>
-        <h1>Rex — Regex Engine</h1>
-        <p>Four engines over one pattern. Measure catastrophic backtracking instead of guessing.</p>
+      <div class="brand">
+        <div class="icon" aria-hidden="true">.*</div>
+        <div>
+          <h1>Rex — Regex Engine</h1>
+          <p class="sub">Four engines, one pattern — measure catastrophic backtracking instead of guessing.</p>
+        </div>
       </div>
-      <a href="https://github.com/umer-78/regex-engine">Source on GitHub</a>
+      <div class="actions">
+        <a class="btn" href="https://github.com/umer-78/regex-engine">GitHub</a>
+      </div>
     </header>
 
     <section class="card">
-      <h2>ReDoS Cost Comparison</h2>
-      <p class="muted" style="margin-top:0">Pattern <code class="mono">(a+)+b</code> against a string of <code class="mono">a</code> with no <code class="mono">b</code>. No match → backtracking tries every way to split the input between the two <code class="mono">+</code> levels.</p>
-      <div class="row" style="margin-bottom:12px">
+      <h2><span class="section-num">01</span> ReDoS Cost Comparison</h2>
+      <p class="desc">Pattern <code>(a+)+b</code> against a string of <code>a</code> with no <code>b</code>. On failure, backtracking enumerates every way to split the input across the two <code>+</code> levels.</p>
+      <div class="row" style="margin-bottom:16px">
         <div>
           <label for="redosN">Input length (n)</label>
-          <input type="range" id="redosN" min="4" max="28" value="20" style="padding:0">
-          <div class="muted" style="font-size:13px">n = <b id="redosNVal">20</b></div>
+          <input type="range" id="redosN" min="4" max="28" value="20">
+          <div class="muted" style="font-size:13px;margin-top:8px">n = <b id="redosNVal">20</b></div>
         </div>
         <div style="flex:0 0 auto">
           <button class="primary" id="redosRun">Measure</button>
         </div>
       </div>
       <div id="redosResult">
-        <div class="steps">
-          <span class="engine">Backtracking:</span>
-          <span class="count bad" id="btSteps">16,777,194</span>
-          <span class="engine">steps</span>
+        <div class="stats">
+          <div class="stat">
+            <div class="label">Backtracking</div>
+            <div class="value bad" id="btSteps">16,777,194</div>
+            <div class="sub">steps</div>
+          </div>
+          <div class="stat">
+            <div class="label">Thompson NFA</div>
+            <div class="value good" id="nfaSteps">592</div>
+            <div class="sub">steps</div>
+          </div>
         </div>
-        <div class="viz"><div class="bar bt" id="btBar" style="width:100%"></div></div>
-        <div class="steps">
-          <span class="engine">Thompson NFA:</span>
-          <span class="count good" id="nfaSteps">592</span>
-          <span class="engine">steps</span>
+        <div class="viz-line">
+          <span class="engine">Backtracking</span>
+          <div class="viz"><div class="bar bt" id="btBar" style="width:100%"></div></div>
         </div>
-        <div class="viz"><div class="bar nfa" id="nfaBar" style="width:0.35%"></div></div>
-        <p class="muted" id="redosRatio" style="margin-top:12px">Ratio: <b>28,340×</b> more work for the backtracking engine at n=20</p>
+        <div class="viz-line">
+          <span class="engine">Thompson NFA</span>
+          <div class="viz"><div class="bar nfa" id="nfaBar" style="width:0.35%"></div></div>
+        </div>
+        <p class="ratio-line" id="redosRatio">Ratio: <b>28,340×</b> more work for the backtracking engine at n=20</p>
         <div class="result-box" id="redosFormula">Closed forms: backtracking = 2^(n+4) − (n+9), Thompson = 30n − 25</div>
       </div>
     </section>
 
     <div class="grid two">
       <section class="card">
-        <h2>Pattern Safety Checker</h2>
-        <p class="muted" style="margin-top:0">Heuristic over pattern shape — finds nested quantifiers and ambiguous alternations inside repeats.</p>
+        <h2><span class="section-num">02</span> Pattern Safety Checker</h2>
+        <p class="desc">A shape-based heuristic that flags nested quantifiers and ambiguous alternations inside repeats.</p>
         <label for="checkPattern">Pattern</label>
-        <input id="checkPattern" class="mono" value="(a+)+b" spellcheck="false">
+        <input id="checkPattern" class="mono" value="(a+)+b" spellcheck="false" autocomplete="off">
         <div class="presets">
-          <button data-p="(a+)+b">(a+)+b</button>
-          <button data-p="(a|a)*b">(a|a)*b</button>
-          <button data-p="(a|b)*c">(a|b)*c</button>
-          <button data-p="^\w+@\w+\.\w+$">email</button>
-          <button data-p="^(\s*\w+)+$">classic</button>
+          <button data-p="(a+)+b" type="button">(a+)+b</button>
+          <button data-p="(a|a)*b" type="button">(a|a)*b</button>
+          <button data-p="(a|b)*c" type="button">(a|b)*c</button>
+          <button data-p="^\w+@\w+\.\w+$" type="button">email</button>
+          <button data-p="^(\s*\w+)+$" type="button">classic</button>
         </div>
         <button class="primary" id="checkRun" style="margin-top:8px">Check pattern</button>
         <div id="checkResult" style="margin-top:12px"></div>
       </section>
 
       <section class="card">
-        <h2>Live Match</h2>
-        <p class="muted" style="margin-top:0">Run a pattern against input using JavaScript's RegExp (leftmost-first semantics, like Python's <code>re</code>).</p>
+        <h2><span class="section-num">03</span> Live Match</h2>
+        <p class="desc">Try a pattern against sample input with JavaScript's RegExp — leftmost-first semantics, the same family as Python's <code>re</code>.</p>
         <div class="row">
           <div>
             <label for="matchPattern">Pattern</label>
-            <input id="matchPattern" class="mono" value="a+b" spellcheck="false">
+            <input id="matchPattern" class="mono" value="a+b" spellcheck="false" autocomplete="off">
           </div>
           <div>
             <label for="matchFlags">Flags</label>
-            <input id="matchFlags" class="mono" value="" placeholder="g i m" style="max-width:80px">
+            <input id="matchFlags" class="mono" value="" placeholder="g i m" style="max-width:96px" autocomplete="off">
           </div>
         </div>
-        <div style="margin-top:10px">
+        <div style="margin-top:12px">
           <label for="matchInput">Input</label>
-          <input id="matchInput" class="mono" value="xaaab" spellcheck="false">
+          <input id="matchInput" class="mono" value="xaaab" spellcheck="false" autocomplete="off">
         </div>
-        <button class="primary" id="matchRun" style="margin-top:10px">Match</button>
+        <button class="primary" id="matchRun" style="margin-top:12px">Match</button>
         <div id="matchResult" style="margin-top:12px"></div>
       </section>
     </div>
 
     <section class="card">
-      <h2>Engine Comparison Table</h2>
-      <p class="muted" style="margin-top:0">Measured with <code class="mono">rex redos -m 20 --stdlib</code>. Every extra character multiplies backtracking work by 2.00×.</p>
+      <h2><span class="section-num">04</span> Engine Comparison</h2>
+      <p class="desc">Measured with <code>rex redos -m 20 --stdlib</code>. Every extra input character multiplies backtracking work by 2.00×.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>n</th><th>Backtracking</th><th>Thompson NFA</th><th>Ratio</th><th>Python re</th></tr></thead>
           <tbody>
-            <tr><td>12</td><td style="color:var(--bad)">65,522</td><td style="color:var(--good)">352</td><td>186×</td><td>0.000s</td></tr>
-            <tr><td>14</td><td style="color:var(--bad)">262,128</td><td style="color:var(--good)">412</td><td>636×</td><td>0.002s</td></tr>
-            <tr><td>16</td><td style="color:var(--bad)">1,048,558</td><td style="color:var(--good)">472</td><td>2,222×</td><td>0.007s</td></tr>
-            <tr><td>18</td><td style="color:var(--bad)">4,194,284</td><td style="color:var(--good)">532</td><td>7,884×</td><td>0.026s</td></tr>
-            <tr><td>20</td><td style="color:var(--bad)">16,777,194</td><td style="color:var(--good)">592</td><td>28,340×</td><td>0.106s</td></tr>
+            <tr><td>12</td><td class="steps-bad">65,522</td><td class="steps-good">352</td><td>186×</td><td>0.000s</td></tr>
+            <tr><td>14</td><td class="steps-bad">262,128</td><td class="steps-good">412</td><td>636×</td><td>0.002s</td></tr>
+            <tr><td>16</td><td class="steps-bad">1,048,558</td><td class="steps-good">472</td><td>2,222×</td><td>0.007s</td></tr>
+            <tr><td>18</td><td class="steps-bad">4,194,284</td><td class="steps-good">532</td><td>7,884×</td><td>0.026s</td></tr>
+            <tr><td>20</td><td class="steps-bad">16,777,194</td><td class="steps-good">592</td><td>28,340×</td><td>0.106s</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="muted" style="margin-bottom:0">Python's <code>re</code> is also a backtracking engine: 0.106s at n=20, 1.6s at n=24, 25s at n=28. <code>rex</code> refuses to run it on flagged patterns over 24 characters.</p>
+      <p class="desc" style="margin:14px 0 0">Python's <code>re</code> is also a backtracking engine: 0.106s at n=20, 1.6s at n=24, 25s at n=28. <code>rex</code> refuses to run flagged patterns longer than 24 characters.</p>
     </section>
 
     <section class="card">
-      <h2>CLI Output Examples</h2>
+      <h2><span class="section-num">05</span> CLI Output Examples</h2>
       <div class="grid two">
         <div>
-          <h3 style="font-size:13px;color:var(--muted);margin:0 0 6px">rex match</h3>
+          <h3 class="eyebrow">rex match</h3>
           <div class="result-box">$ rex match '(a+)+b' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 engine             result         steps      time
 backtracking      GAVE UP     1,000,001    0.8020
@@ -198,7 +566,7 @@ lazy dfa            False           100    0.0002
 python re         skipped             -         -</div>
         </div>
         <div>
-          <h3 style="font-size:13px;color:var(--muted);margin:0 0 6px">rex check</h3>
+          <h3 class="eyebrow">rex check</h3>
           <div class="result-box">$ rex check '(a+)+b' '(a|a)*b' '(a|b)*c'
 RISK  (a+)+b
         nested quantifier
@@ -210,9 +578,9 @@ ok    (a|b)*c</div>
     </section>
 
     <section class="card">
-      <h2>What It Supports</h2>
-      <p>Literals, <code>.</code>, character classes with ranges and negation, <code>\d \w \s</code> and uppercase complements, <code>* + ?</code> and <code>{n,m}</code> in greedy and lazy forms, alternation, capturing and non-capturing groups, and <code>^ $</code> anchors.</p>
-      <p><b>Not supported:</b> backreferences and lookaround. They are why backtracking engines exist, and adding them would give up the linear-time guarantee this project is about.</p>
+      <h2><span class="section-num">06</span> What It Supports</h2>
+      <p class="desc">Literals, <code>.</code>, character classes with ranges and negation, <code>\d \w \s</code> and their uppercase complements, <code>* + ?</code> and <code>{n,m}</code> in greedy and lazy forms, alternation, capturing and non-capturing groups, and <code>^ $</code> anchors.</p>
+      <p class="desc"><b>Not supported:</b> backreferences and lookaround — the features that force engines into backtracking. Skipping them is what buys the linear-time guarantee this project is about.</p>
       <div class="result-box">$ rex compile 'a(b|c)*d'
    0  char 'a'
    1  split 2, 9
@@ -321,6 +689,28 @@ ok    (a|b)*c</div>
       return { btSteps, nfaSteps, ratio: btSteps / nfaSteps };
     }
 
+    // === Animated number counter ===
+    function animateNumber(el, target, duration = 800, suffix = "") {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        el.textContent = target.toLocaleString('en-US') + suffix;
+        return;
+      }
+      if (el._animId) cancelAnimationFrame(el._animId);
+      const start = performance.now();
+      function tick(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        const val = Math.round(target * eased);
+        el.textContent = val.toLocaleString('en-US') + suffix;
+        if (t < 1) {
+          el._animId = requestAnimationFrame(tick);
+        } else {
+          el._animId = null;
+        }
+      }
+      el._animId = requestAnimationFrame(tick);
+    }
+
     // === DOM helpers ===
     const $ = (id) => document.getElementById(id);
     const fmt = (n) => n.toLocaleString('en-US');
@@ -333,8 +723,8 @@ ok    (a|b)*c</div>
     $('redosRun').addEventListener('click', () => {
       const n = Number($('redosN').value);
       const { btSteps, nfaSteps, ratio } = measureRedos(n);
-      $('btSteps').textContent = fmt(btSteps);
-      $('nfaSteps').textContent = fmt(nfaSteps);
+      animateNumber($('btSteps'), btSteps, 900);
+      animateNumber($('nfaSteps'), nfaSteps, 900);
       const maxBar = 100;
       const btPct = 100;
       const nfaPct = Math.max(0.1, (nfaSteps / btSteps) * 100);
@@ -399,7 +789,17 @@ ok    (a|b)*c</div>
       return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
-    // Initial run
+    // Initial run: reveal bars + counters (static values match the comparison table), evaluate default pattern
+    const btInitial = 16777194;
+    const nfaInitial = 592;
+    $('btBar').style.width = '0%';
+    $('nfaBar').style.width = '0%';
+    animateNumber($('btSteps'), btInitial, 900);
+    animateNumber($('nfaSteps'), nfaInitial, 900);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      $('btBar').style.width = '100%';
+      $('nfaBar').style.width = '0.35%';
+    }));
     runCheck();
   </script>
 </body>
