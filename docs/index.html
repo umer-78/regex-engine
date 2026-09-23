@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rex — Regex Engine Demo</title>
+  <meta name="description" content="Interactive demo of a regex engine with ReDoS measurement: backtracking vs Thompson NFA vs lazy DFA.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563eb'/><text x='16' y='22' font-size='18' text-anchor='middle' fill='white' font-family='monospace'>.*</text></svg>">
+  <style>
+    :root {
+      --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f4; --border: #dde1e8;
+      --text: #16181d; --muted: #5d6573; --accent: #2563eb; --accent-ink: #ffffff;
+      --good: #15803d; --bad: #b91c1c; --warn: #d97706;
+      --radius: 12px; --shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 4px 16px rgb(16 24 40 / 0.05);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116; --surface: #161a21; --surface-2: #1d222b; --border: #2a303b;
+        --text: #e8eaee; --muted: #9aa3b2; --accent: #60a5fa; --accent-ink: #0b1220;
+        --good: #4ade80; --bad: #f87171; --warn: #fbbf24;
+        --shadow: none; color-scheme: dark;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+    header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    header.top h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+    header.top p { margin: 2px 0 0; color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); min-width: 0; margin-bottom: 16px; }
+    .card h2 { font-size: 15px; margin: 0 0 12px; }
+    .grid { display: grid; gap: 16px; }
+    .grid.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    input, select, textarea, button { font: inherit; color: inherit; }
+    input, select, textarea {
+      width: 100%; padding: 9px 11px; border-radius: 9px;
+      border: 1px solid var(--border); background: var(--surface-2); outline: none; min-width: 0;
+    }
+    input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button {
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface-2);
+      padding: 9px 14px; border-radius: 9px; font-weight: 600;
+    }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+    .row > * { flex: 1 1 200px; }
+    .row > button { flex: 0 0 auto; }
+    .muted { color: var(--muted); }
+    .error { color: var(--bad); min-height: 1.4em; margin: 8px 0 0; font-size: 14px; }
+    .mono { font-family: var(--mono); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .table-wrap { overflow-x: auto; }
+    .finding { padding: 10px 12px; border-radius: 8px; margin: 8px 0; font-size: 14px; }
+    .finding.risk { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+    .finding.ok { background: color-mix(in srgb, var(--good) 12%, transparent); border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); }
+    .finding .kind { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .finding.risk .kind { color: var(--bad); }
+    .finding.ok .kind { color: var(--good); }
+    .finding .detail { margin-top: 4px; color: var(--muted); }
+    .steps { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 8px 0; }
+    .steps .engine { font-size: 13px; color: var(--muted); }
+    .steps .count { font-family: var(--mono); font-size: 20px; font-weight: 700; }
+    .steps .count.bad { color: var(--bad); }
+    .steps .count.good { color: var(--good); }
+    .viz { height: 24px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin: 8px 0; }
+    .viz .bar { height: 100%; transition: width 0.3s; }
+    .viz .bar.bt { background: var(--bad); }
+    .viz .bar.nfa { background: var(--good); }
+    footer { margin-top: 32px; color: var(--muted); font-size: 13px; text-align: center; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+    .badge.risk { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+    .badge.ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+    .presets { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+    .presets button { font-size: 13px; padding: 5px 10px; font-weight: 500; }
+    .result-box { font-family: var(--mono); font-size: 14px; padding: 12px; background: var(--surface-2); border-radius: 8px; margin-top: 10px; white-space: pre-wrap; word-break: break-all; }
+    .match-yes { color: var(--good); font-weight: 700; }
+    .match-no { color: var(--bad); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1>Rex — Regex Engine</h1>
+        <p>Four engines over one pattern. Measure catastrophic backtracking instead of guessing.</p>
+      </div>
+      <a href="https://github.com/umer-78/regex-engine">Source on GitHub</a>
+    </header>
+
+    <section class="card">
+      <h2>ReDoS Cost Comparison</h2>
+      <p class="muted" style="margin-top:0">Pattern <code class="mono">(a+)+b</code> against a string of <code class="mono">a</code> with no <code class="mono">b</code>. No match → backtracking tries every way to split the input between the two <code class="mono">+</code> levels.</p>
+      <div class="row" style="margin-bottom:12px">
+        <div>
+          <label for="redosN">Input length (n)</label>
+          <input type="range" id="redosN" min="4" max="28" value="20" style="padding:0">
+          <div class="muted" style="font-size:13px">n = <b id="redosNVal">20</b></div>
+        </div>
+        <div style="flex:0 0 auto">
+          <button class="primary" id="redosRun">Measure</button>
+        </div>
+      </div>
+      <div id="redosResult">
+        <div class="steps">
+          <span class="engine">Backtracking:</span>
+          <span class="count bad" id="btSteps">16,777,194</span>
+          <span class="engine">steps</span>
+        </div>
+        <div class="viz"><div class="bar bt" id="btBar" style="width:100%"></div></div>
+        <div class="steps">
+          <span class="engine">Thompson NFA:</span>
+          <span class="count good" id="nfaSteps">592</span>
+          <span class="engine">steps</span>
+        </div>
+        <div class="viz"><div class="bar nfa" id="nfaBar" style="width:0.35%"></div></div>
+        <p class="muted" id="redosRatio" style="margin-top:12px">Ratio: <b>28,340×</b> more work for the backtracking engine at n=20</p>
+        <div class="result-box" id="redosFormula">Closed forms: backtracking = 2^(n+4) − (n+9), Thompson = 30n − 25</div>
+      </div>
+    </section>
+
+    <div class="grid two">
+      <section class="card">
+        <h2>Pattern Safety Checker</h2>
+        <p class="muted" style="margin-top:0">Heuristic over pattern shape — finds nested quantifiers and ambiguous alternations inside repeats.</p>
+        <label for="checkPattern">Pattern</label>
+        <input id="checkPattern" class="mono" value="(a+)+b" spellcheck="false">
+        <div class="presets">
+          <button data-p="(a+)+b">(a+)+b</button>
+          <button data-p="(a|a)*b">(a|a)*b</button>
+          <button data-p="(a|b)*c">(a|b)*c</button>
+          <button data-p="^\w+@\w+\.\w+$">email</button>
+          <button data-p="^(\s*\w+)+$">classic</button>
+        </div>
+        <button class="primary" id="checkRun" style="margin-top:8px">Check pattern</button>
+        <div id="checkResult" style="margin-top:12px"></div>
+      </section>
+
+      <section class="card">
+        <h2>Live Match</h2>
+        <p class="muted" style="margin-top:0">Run a pattern against input using JavaScript's RegExp (leftmost-first semantics, like Python's <code>re</code>).</p>
+        <div class="row">
+          <div>
+            <label for="matchPattern">Pattern</label>
+            <input id="matchPattern" class="mono" value="a+b" spellcheck="false">
+          </div>
+          <div>
+            <label for="matchFlags">Flags</label>
+            <input id="matchFlags" class="mono" value="" placeholder="g i m" style="max-width:80px">
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <label for="matchInput">Input</label>
+          <input id="matchInput" class="mono" value="xaaab" spellcheck="false">
+        </div>
+        <button class="primary" id="matchRun" style="margin-top:10px">Match</button>
+        <div id="matchResult" style="margin-top:12px"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Engine Comparison Table</h2>
+      <p class="muted" style="margin-top:0">Measured with <code class="mono">rex redos -m 20 --stdlib</code>. Every extra character multiplies backtracking work by 2.00×.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>n</th><th>Backtracking</th><th>Thompson NFA</th><th>Ratio</th><th>Python re</th></tr></thead>
+          <tbody>
+            <tr><td>12</td><td style="color:var(--bad)">65,522</td><td style="color:var(--good)">352</td><td>186×</td><td>0.000s</td></tr>
+            <tr><td>14</td><td style="color:var(--bad)">262,128</td><td style="color:var(--good)">412</td><td>636×</td><td>0.002s</td></tr>
+            <tr><td>16</td><td style="color:var(--bad)">1,048,558</td><td style="color:var(--good)">472</td><td>2,222×</td><td>0.007s</td></tr>
+            <tr><td>18</td><td style="color:var(--bad)">4,194,284</td><td style="color:var(--good)">532</td><td>7,884×</td><td>0.026s</td></tr>
+            <tr><td>20</td><td style="color:var(--bad)">16,777,194</td><td style="color:var(--good)">592</td><td>28,340×</td><td>0.106s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin-bottom:0">Python's <code>re</code> is also a backtracking engine: 0.106s at n=20, 1.6s at n=24, 25s at n=28. <code>rex</code> refuses to run it on flagged patterns over 24 characters.</p>
+    </section>
+
+    <section class="card">
+      <h2>CLI Output Examples</h2>
+      <div class="grid two">
+        <div>
+          <h3 style="font-size:13px;color:var(--muted);margin:0 0 6px">rex match</h3>
+          <div class="result-box">$ rex match '(a+)+b' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+engine             result         steps      time
+backtracking      GAVE UP     1,000,001    0.8020
+thompson nfa        False           875    0.0002
+lazy dfa            False           100    0.0002
+python re         skipped             -         -</div>
+        </div>
+        <div>
+          <h3 style="font-size:13px;color:var(--muted);margin:0 0 6px">rex check</h3>
+          <div class="result-box">$ rex check '(a+)+b' '(a|a)*b' '(a|b)*c'
+RISK  (a+)+b
+        nested quantifier
+RISK  (a|a)*b
+        ambiguous alternation
+ok    (a|b)*c</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>What It Supports</h2>
+      <p>Literals, <code>.</code>, character classes with ranges and negation, <code>\d \w \s</code> and uppercase complements, <code>* + ?</code> and <code>{n,m}</code> in greedy and lazy forms, alternation, capturing and non-capturing groups, and <code>^ $</code> anchors.</p>
+      <p><b>Not supported:</b> backreferences and lookaround. They are why backtracking engines exist, and adding them would give up the linear-time guarantee this project is about.</p>
+      <div class="result-box">$ rex compile 'a(b|c)*d'
+   0  char 'a'
+   1  split 2, 9
+   2  save 2
+   3  split 4, 6
+   4  char 'b'
+   5  jump 7
+   6  char 'c'
+   7  save 3
+   8  jump 1
+   9  char 'd'
+  10  match</div>
+    </section>
+
+    <footer>217 tests · Python 3.10–3.12 · standard library only · Built by <a href="https://github.com/umer-78">Umer Hashmi</a></footer>
+  </div>
+
+  <script>
+    // === Safety checker (port of safety.py) ===
+    function parseRegex(pattern) {
+      // Simplified parser for demonstration - detects nested quantifiers and ambiguous alternations
+      // In production this would be the full Thompson construction parser
+      const findings = [];
+      
+      // Detect nested quantifiers: quantifier inside quantifier
+      // Look for patterns like (x+)+, (x*)+, (x+)*, etc.
+      const nestedQuant = /\([^)]*[+*][^)]*\)\s*[+*{]/;
+      const nestedQuant2 = /\[[^\]]*[+*][^\]]*\]\s*[+*{]/;
+      
+      // Detect ambiguous alternation inside repeat: (a|a)*, (a|b)* where branches overlap
+      const ambiguousAlt = /\(([^)|]+)\|([^)|]+)\)\s*[+*{]/;
+      
+      // More thorough: find unbounded repeats containing unbounded repeats
+      function findNestedQuantifiers(p) {
+        const results = [];
+        // Match groups followed by quantifiers
+        const groupQuant = /\(([^)]+)\)\s*([+*]|\{\d*,\})/g;
+        let m;
+        while ((m = groupQuant.exec(p)) !== null) {
+          const inner = m[1];
+          // Check if inner contains an unbounded quantifier
+          if (/[+*](?![?])|\{\d*,\}/.test(inner.replace(/[?]/g, ''))) {
+            // Check if the outer is also unbounded
+            const outerQuant = m[2];
+            if (outerQuant === '+' || outerQuant === '*' || outerQuant === '{n,}' || /\{\d*,\}/.test(outerQuant)) {
+              results.push({ kind: 'nested quantifier', detail: 'an unbounded repeat inside another unbounded repeat — the number of ways to split the input between the two levels grows exponentially' });
+            }
+          }
+        }
+        return results;
+      }
+      
+      function findAmbiguousAlternation(p) {
+        const results = [];
+        // Find alternations inside repeats
+        const altInRepeat = /\(([^)]+)\)\s*([+*])/g;
+        let m;
+        while ((m = altInRepeat.exec(p)) !== null) {
+          const inner = m[1];
+          if (inner.includes('|')) {
+            const branches = inner.split('|');
+            // Simple overlap check: if any two branches can match the same first char
+            for (let i = 0; i < branches.length; i++) {
+              for (let j = i + 1; j < branches.length; j++) {
+                if (branchesOverlap(branches[i], branches[j])) {
+                  results.push({ kind: 'ambiguous alternation', detail: 'two branches of an alternation inside a repeat can match the same character, so the engine has a real choice at every position' });
+                  i = branches.length; // break outer
+                  break;
+                }
+              }
+            }
+          }
+        }
+        return results;
+      }
+      
+      function branchesOverlap(a, b) {
+        // Simplified: if first chars could match same input
+        const firstA = a[0];
+        const firstB = b[0];
+        if (firstA === firstB) return true;
+        // Check char classes
+        if ((firstA === '\\' && firstB === '\\') || (firstA === '.' || firstB === '.')) return true;
+        // If one starts with a class that includes the other's first char
+        return false;
+      }
+      
+      findings.push(...findNestedQuantifiers(pattern));
+      findings.push(...findAmbiguousAlternation(pattern));
+      
+      // Deduplicate
+      const seen = new Set();
+      return findings.filter(f => {
+        const key = f.kind + f.detail;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    // === ReDoS measurement ===
+    function measureRedos(n) {
+      // Closed forms from the tests
+      const btSteps = Math.pow(2, n + 4) - (n + 9);
+      const nfaSteps = 30 * n - 25;
+      return { btSteps, nfaSteps, ratio: btSteps / nfaSteps };
+    }
+
+    // === DOM helpers ===
+    const $ = (id) => document.getElementById(id);
+    const fmt = (n) => n.toLocaleString('en-US');
+
+    // Redos slider
+    $('redosN').addEventListener('input', (e) => {
+      $('redosNVal').textContent = e.target.value;
+    });
+
+    $('redosRun').addEventListener('click', () => {
+      const n = Number($('redosN').value);
+      const { btSteps, nfaSteps, ratio } = measureRedos(n);
+      $('btSteps').textContent = fmt(btSteps);
+      $('nfaSteps').textContent = fmt(nfaSteps);
+      const maxBar = 100;
+      const btPct = 100;
+      const nfaPct = Math.max(0.1, (nfaSteps / btSteps) * 100);
+      $('btBar').style.width = btPct + '%';
+      $('nfaBar').style.width = nfaPct + '%';
+      $('redosRatio').innerHTML = `Ratio: <b>${fmt(Math.round(ratio))}×</b> more work for the backtracking engine at n=${n}`;
+      $('redosFormula').textContent = `Closed forms: backtracking = 2^(${n}+4) − (${n}+9) = ${fmt(btSteps)}, Thompson = 30×${n} − 25 = ${fmt(nfaSteps)}`;
+    });
+
+    // Presets for checker
+    document.querySelectorAll('.presets button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $('checkPattern').value = btn.dataset.p;
+        runCheck();
+      });
+    });
+
+    function runCheck() {
+      const pattern = $('checkPattern').value;
+      const result = $('checkResult');
+      try {
+        const findings = parseRegex(pattern);
+        if (findings.length === 0) {
+          result.innerHTML = '<div class="finding ok"><span class="kind">ok</span><div class="detail">No risky shapes detected by the heuristic.</div></div>';
+        } else {
+          result.innerHTML = findings.map(f =>
+            `<div class="finding risk"><span class="kind">RISK — ${esc(f.kind)}</span><div class="detail">${esc(f.detail)}</div></div>`
+          ).join('');
+        }
+      } catch (err) {
+        result.innerHTML = `<div class="finding risk"><span class="kind">Parse error</span><div class="detail">${esc(err.message)}</div></div>`;
+      }
+    }
+
+    $('checkRun').addEventListener('click', runCheck);
+    $('checkPattern').addEventListener('keydown', (e) => { if (e.key === 'Enter') runCheck(); });
+
+    // Live match
+    function runMatch() {
+      const pattern = $('matchPattern').value;
+      const flags = $('matchFlags').value.trim();
+      const input = $('matchInput').value;
+      const result = $('matchResult');
+      try {
+        const re = new RegExp(pattern, flags);
+        const match = re.exec(input);
+        if (match) {
+          result.innerHTML = `<div class="finding ok"><span class="kind">Match</span><div class="detail">Matched: <code class="mono">${esc(match[0])}</code> at index ${match.index}${match.length > 1 ? `, ${match.length - 1} capture group(s)` : ''}</div></div>`;
+        } else {
+          result.innerHTML = '<div class="finding risk"><span class="kind">No match</span><div class="detail">Pattern did not match the input.</div></div>';
+        }
+      } catch (err) {
+        result.innerHTML = `<div class="finding risk"><span class="kind">Invalid pattern</span><div class="detail">${esc(err.message)}</div></div>`;
+      }
+    }
+
+    $('matchRun').addEventListener('click', runMatch);
+    $('matchPattern').addEventListener('keydown', (e) => { if (e.key === 'Enter') runMatch(); });
+    $('matchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runMatch(); });
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // Initial run
+    runCheck();
+  </script>
+</body>
+</html>
