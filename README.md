@@ -1,5 +1,9 @@
 # rex
 
+[![CI](https://github.com/umer-78/regex-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/umer-78/regex-engine/actions/workflows/ci.yml)
+
+**Live demo:** https://umer-78.github.io/regex-engine/
+
 A regular expression engine written from scratch in Python with no
 dependencies: a parser, a backtracking matcher, Thompson's NFA simulation, and a
 lazy DFA — four engines over one pattern, so the thing every ReDoS advisory is
