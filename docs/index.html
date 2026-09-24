@@ -567,6 +567,8 @@
   </style>
 </head>
 <body>
+  <main>
+
   <div class="wrap">
     <header class="top">
       <div class="brand">
@@ -591,7 +593,7 @@
           <div class="muted" style="font-size:13px;margin-top:8px">n = <b id="redosNVal">20</b></div>
         </div>
         <div style="flex:0 0 auto">
-          <button class="primary" id="redosRun">Measure</button>
+          <button class="primary" id="redosRun" type="button">Measure</button>
         </div>
       </div>
       <div id="redosResult">
@@ -633,7 +635,7 @@
           <button data-p="^\w+@\w+\.\w+$" type="button">email</button>
           <button data-p="^(\s*\w+)+$" type="button">classic</button>
         </div>
-        <button class="primary" id="checkRun" style="margin-top:8px">Check pattern</button>
+        <button class="primary" id="checkRun" style="margin-top:8px" type="button">Check pattern</button>
         <div id="checkResult" style="margin-top:12px"></div>
       </section>
 
@@ -654,7 +656,7 @@
           <label for="matchInput">Input</label>
           <input id="matchInput" class="mono" value="xaaab" spellcheck="false" autocomplete="off">
         </div>
-        <button class="primary" id="matchRun" style="margin-top:12px">Match</button>
+        <button class="primary" id="matchRun" style="margin-top:12px" type="button">Match</button>
         <div id="matchResult" style="margin-top:12px"></div>
       </section>
     </div>
@@ -1835,5 +1837,7 @@ ok    (a|b)*c</div>
     resetStep();
     runComplexity();
   </script>
-</body>
+
+  </main>
+  </body>
 </html>
