@@ -1,4 +1,4 @@
-# rex
+# rex: regular expression engine
 
 [![CI](https://github.com/umer-78/regex-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/umer-78/regex-engine/actions/workflows/ci.yml)
 

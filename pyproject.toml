@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "regexengine"
+name = "regex-engine"
 version = "1.0.0"
 description = "A regular expression engine from scratch: parser, backtracking matcher, Thompson NFA simulation and a lazy DFA, with the ReDoS measurements to compare them."
 readme = "README.md"
