@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/umer-78/regex-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/umer-78/regex-engine/actions/workflows/ci.yml)
 
+[![Rex: the live demo](.github/preview.jpg)](https://umer-78.github.io/regex-engine/)
+
 **Live demo:** https://umer-78.github.io/regex-engine/
 
 A regular expression engine written from scratch in Python with no
